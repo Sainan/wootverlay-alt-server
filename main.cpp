@@ -59,6 +59,8 @@ int main()
 	{
 		AnalogueKeyboard akbd; akbd.disconnected = true;
 		DigitalKeyboard dkbd;
+		std::vector<AnalogueKeyboard::ActiveKey> analogue_state;
+		std::string prev_state;
 		while (true)
 		{
 			if (akbd.disconnected)
@@ -71,7 +73,19 @@ int main()
 				continue;
 			}
 
-			const auto analogue_state = akbd.getActiveKeys();
+#if SOUP_WINDOWS
+			// Not blocking on Windows because DigitalKeyboard may be behind AnalogueKeyboard.
+			if (akbd.isPoll())
+			{
+				analogue_state = akbd.getActiveKeys();
+			}
+			else while (akbd.hid.hasReport())
+			{
+				analogue_state = akbd.getActiveKeys();
+			}
+#else
+			analogue_state = akbd.getActiveKeys();
+#endif
 			dkbd.update();
 
 			std::string state;
@@ -85,7 +99,11 @@ int main()
 				state.push_back(dkbd.keys[ak.sk] ? '1' : '0');
 				state.push_back(')');
 			}
-			serv.add<AnnounceStateTask>(std::move(state));
+			if (state != prev_state)
+			{
+				prev_state = state;
+				serv.add<AnnounceStateTask>(std::move(state));
+			}
 		}
 	});
 
