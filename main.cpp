@@ -2,6 +2,7 @@
 
 #include <AnalogueKeyboard.hpp>
 #include <DigitalKeyboard.hpp>
+#include <HidScancode.hpp>
 #include <Server.hpp>
 #include <ServerWebService.hpp>
 #include <Socket.hpp>
@@ -61,6 +62,7 @@ int main()
 		DigitalKeyboard dkbd;
 		std::vector<AnalogueKeyboard::ActiveKey> analogue_state;
 		std::string prev_state;
+		std::unordered_set<Key> activated_keys;
 		while (true)
 		{
 			if (akbd.disconnected)
@@ -98,9 +100,42 @@ int main()
 				state.push_back(':');
 				state.push_back(dkbd.keys[ak.sk] ? '1' : '0');
 				state.push_back(')');
+				activated_keys.emplace(ak.sk);
 			}
 			if (state != prev_state)
 			{
+				// Explicitly state when a key has been released
+				std::string release;
+				for (const auto& ak : activated_keys)
+				{
+					bool still_active = false;
+					for (const auto& ak2 : analogue_state)
+					{
+						if (ak == ak2.sk)
+						{
+							still_active = true;
+							break;
+						}
+					}
+					if (!still_active)
+					{
+						release.push_back('(');
+						release.append(std::to_string(static_cast<unsigned int>(soup_key_to_hid_scancode(ak))));
+						release.append(":0:0)");
+					}
+				}
+				if (!release.empty())
+				{
+					serv.add<AnnounceStateTask>(std::move(release));
+
+					// Re-init activated_keys with only keys that were active this tick
+					activated_keys.clear();
+					for (const auto& ak : analogue_state)
+					{
+						activated_keys.emplace(ak.sk);
+					}
+				}
+
 				prev_state = state;
 				serv.add<AnnounceStateTask>(std::move(state));
 			}
